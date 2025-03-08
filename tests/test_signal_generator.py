@@ -1,40 +1,44 @@
 # tests/test_signal_generator.py
 import unittest
 import numpy as np
-from signal_generator import generate_80211_stf_signal
+from signal_generator import generate_80211ag_preamble
+
 
 class TestSignalGenerator(unittest.TestCase):
     def setUp(self):
         self.fs = 20e6
-        self.noise_duration = 10e-6
-        self.stf_duration = 20e-6
-        self.noise_std = 0.1
-        self.t, self.input_signal, self.signal = generate_80211_stf_signal(
-            self.fs, self.noise_duration, self.stf_duration, self.noise_std
+        self.t, self.signal = generate_80211ag_preamble(
+            fs=self.fs, add_rf_fingerprint=True, seed=42
         )
 
     def test_signal_length(self):
         """Test that the signal length is correct."""
-        total_duration = self.noise_duration + self.stf_duration
-        expected_length = int(self.fs * total_duration)
+        expected_length = int(16e-6 * self.fs)  # 16 µs total duration
         if expected_length % 2 != 0:
             expected_length += 1
-        self.assertEqual(len(self.input_signal), expected_length)
+        self.assertEqual(len(self.signal), expected_length)
         self.assertEqual(len(self.t), expected_length)
 
-    def test_stf_placement(self):
-        """Test that STF is placed correctly at 10 µs."""
-        stf_start_idx = int(self.noise_duration * self.fs)
-        stf_end_idx = stf_start_idx + int(8e-6 * self.fs)  # 8 µs STF
-        self.assertTrue(np.all(self.signal[:stf_start_idx] == 0))  # Noise-only before
-        self.assertTrue(np.any(self.signal[stf_start_idx:stf_end_idx] != 0))  # STF present
-        self.assertTrue(np.all(self.signal[stf_end_idx:] == 0))  # Zero after STF
+    def test_stf_ltf_structure(self):
+        """Test that STF (0-8 µs) and LTF (8-16 µs) are present."""
+        stf_end_idx = int(8e-6 * self.fs)  # 8 µs STF
+        ltf_start_idx = stf_end_idx
+        ltf_end_idx = int(16e-6 * self.fs)  # 16 µs total
+        self.assertTrue(np.any(self.signal[:stf_end_idx] != 0))  # STF present
+        self.assertTrue(
+            np.any(self.signal[ltf_start_idx:ltf_end_idx] != 0)
+        )  # LTF present
 
-    def test_noise_properties(self):
-        """Test that noise has expected properties (std ≈ 0.1)."""
-        noise_region = self.input_signal[:int(self.noise_duration * self.fs)]
-        noise_std = np.std(noise_region)
-        self.assertAlmostEqual(noise_std, self.noise_std, delta=0.02)
+    def test_rf_fingerprint(self):
+        """Test that RF fingerprint adds variation (basic check)."""
+        signal_no_rf = generate_80211ag_preamble(
+            fs=self.fs, add_rf_fingerprint=False, seed=42
+        )[1]
+        phase_diff = np.angle(self.signal / signal_no_rf)
+        self.assertTrue(
+            np.std(phase_diff) > 0, "RF fingerprint should add phase variation"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

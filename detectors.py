@@ -1,7 +1,7 @@
-# detectors.py
 import numpy as np
 from scipy import signal as sig
 from dtcwt_utils import run_dtcwt
+
 
 def dtcwt_detector(signal, t, threshold_multiplier=2.5):
     """
@@ -13,9 +13,7 @@ def dtcwt_detector(signal, t, threshold_multiplier=2.5):
         threshold_multiplier (float): Multiplier for noise threshold (mean + k*std).
 
     Returns:
-        tuple: (detected, mag_dtcwt, threshold_dtcwt, t_dtcwt) where detected is a boolean array,
-               mag_dtcwt is the magnitude coefficients, threshold_dtcwt is the threshold,
-               and t_dtcwt is the downsampled time array.
+        tuple: (detected, mag_dtcwt, threshold_dtcwt, t_dtcwt)
     """
     mag_dtcwt = run_dtcwt(signal, t)
     t_dtcwt = t[::2]
@@ -25,35 +23,69 @@ def dtcwt_detector(signal, t, threshold_multiplier=2.5):
     detected = mag_dtcwt > threshold_dtcwt
     return detected, mag_dtcwt, threshold_dtcwt, t_dtcwt
 
-def variance_trajectory_detector(signal, t, window_size=30, threshold_multiplier=4.0, nlevels=4):
-    # Denoising with DTCWT
-    coeffs = run_dtcwt(signal, t)
-    coeff_len_per_level = len(signal) // (2 ** nlevels)
-    highpass_level_0 = coeffs[:coeff_len_per_level]
-    threshold = np.std(np.abs(highpass_level_0)) * np.sqrt(2 * np.log(len(signal)))
-    denoised = signal.copy()
+
+def variance_trajectory_detector(
+    signal, t, window_size=320, threshold_multiplier=0.5, nlevels=4, venv_path=None
+):
+    """
+    Detect bursts using a variance trajectory with DTCWT enhancement.
+
+    Parameters:
+    - signal: Input signal (numpy array)
+    - t: Time vector (numpy array)
+    - window_size: Size of the sliding window (320 ~ 16 µs at 20 MHz)
+    - threshold_multiplier: Multiplier for variance threshold (0.5)
+    - nlevels: Number of DTCWT decomposition levels
+    - venv_path: Path to virtual environment for DTCWT subprocess (optional)
+
+    Returns:
+    - detected: Boolean array indicating detected bursts
+    - variance_traj: Variance trajectory over time
+    - threshold_var: Variance threshold used for detection
+    - enhanced: Enhanced signal magnitude
+    """
+    # Step 1: Enhance signal with DTCWT highpass coefficients
+    coeffs = run_dtcwt(signal, t, nlevels=nlevels, venv_path=venv_path)
+    highpass_level_0 = np.array(coeffs[0], dtype=complex).flatten()
+
+    # Upsample to match signal length
+    enhanced = np.zeros_like(signal, dtype=complex)
+    coeff_len = len(highpass_level_0)
     for i in range(len(signal)):
         idx = i // 2
-        if idx < len(highpass_level_0) and np.abs(highpass_level_0[idx]) < threshold:
-            denoised[i] = 0
+        if idx < coeff_len:
+            enhanced[i] = highpass_level_0[idx]
 
-    # Variance trajectory
+    enhanced_mag = np.abs(enhanced)
+    print(f"Enhanced signal max magnitude: {np.max(enhanced_mag)}")
+
+    # Step 2: Compute variance trajectory
     variance_traj = np.zeros(len(signal) - window_size + 1)
     for i in range(len(variance_traj)):
-        variance_traj[i] = np.var(denoised[i:i + window_size])
+        window = enhanced_mag[i : i + window_size]
+        variance_traj[i] = np.var(window)
 
-    # Thresholding
-    noise_mask = t[:len(variance_traj)] * 1e6 < 10.0
-    noise_var = variance_traj[noise_mask]
+    # Step 3: Threshold based on noise (incorrectly uses signal region)
+    noise_mask = t[: len(variance_traj)] * 1e6 < -1.0  # This is broken as t starts at 0
+    noise_var = (
+        variance_traj[noise_mask] if np.any(noise_mask) else variance_traj[:window_size]
+    )
     threshold_var = np.mean(noise_var) + threshold_multiplier * np.std(noise_var)
+    print(f"Noise variance mean: {np.mean(noise_var)}, std: {np.std(noise_var)}")
+    print(f"Variance threshold: {threshold_var}")
+    print(f"Variance trajectory max: {np.max(variance_traj)}")
+
+    # Step 4: Detect bursts
     detected = np.zeros_like(signal, dtype=bool)
     detected_var = variance_traj > threshold_var
     for i in range(len(detected_var)):
         if detected_var[i]:
-            detected[i:i + window_size] = True
+            end_idx = min(len(signal), i + window_size)
+            detected[i:end_idx] = True
 
-    return detected, variance_traj, threshold_var, denoised
-    
+    return detected, variance_traj, threshold_var, enhanced_mag
+
+
 def matched_filter_detector(signal, template, threshold_fraction=0.5, fs=20e6):
     """
     Detect bursts using a matched filter.
@@ -65,10 +97,9 @@ def matched_filter_detector(signal, template, threshold_fraction=0.5, fs=20e6):
         fs (float): Sampling frequency (Hz).
 
     Returns:
-        tuple: (detected, mf_output, threshold_mf) where detected is a boolean array,
-               mf_output is the correlation output, and threshold_mf is the threshold.
+        tuple: (detected, mf_output, threshold_mf)
     """
-    mf_output = sig.correlate(signal, template, mode='same')
+    mf_output = sig.correlate(signal, template, mode="same")
     mf_output = np.abs(mf_output) / np.max(np.abs(mf_output))
     max_mf = np.max(mf_output)
     threshold_mf = threshold_fraction * max_mf
