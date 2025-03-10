@@ -9,11 +9,12 @@ from feature_extractor import (
     compute_statistics,
     extract_features,
 )
+from scipy.signal import butter, filtfilt
 
 # Define parameters
 fs = 20e6  # Sampling frequency in Hz
 nlevels = 5  # Number of DTCWT decomposition levels
-t_start = 0  # Start time of the subregion in signal (0 µs, since no noise)
+t_start = 0  # Start time of the subregion in signal (0 µs)
 t_end = 16e-6  # End time of the subregion in signal (16 µs)
 add_rf_fingerprint = True  # Option to enable RF fingerprint simulation
 seed = 42  # Fixed seed for reproducibility of RF fingerprint
@@ -27,13 +28,18 @@ t, input_signal = generate_80211ag_preamble(
 idx_combined = (t >= t_start) & (t < t_end)
 subregion = input_signal[idx_combined]
 t_sub = t[idx_combined]
+print(f"Subregion length: {len(subregion)}, Expected samples: {int((t_end - t_start) * fs)}")
+print(f"Subregion t_sub range: min={t_sub[0]*1e6:.2f}µs, max={t_sub[-1]*1e6:.2f}µs")
+print(f"Subregion amplitude range: min={np.min(np.abs(subregion)):.4f}, max={np.max(np.abs(subregion)):.4f}")
 
 # Perform DTCWT decomposition on the subregion directly
 target_length = 2 ** int(np.ceil(np.log2(len(subregion))))
-subregion_padded = np.pad(subregion, (0, target_length - len(subregion)), mode="constant")
+subregion_padded = np.pad(subregion, (0, target_length - len(subregion)), mode="reflect")
+print(f"Padded subregion length: {len(subregion_padded)}")
 transform = Transform1d()
 coeffs = transform.forward(subregion_padded, nlevels=nlevels)
-coeffs = [np.array(c) for c in coeffs.highpasses]  # Extract highpass coefficients
+coeffs = [np.array(c) for c in coeffs.highpasses]
+print(f"Coefficients level 0 length: {len(coeffs[0])}, range: min={np.min(np.abs(coeffs[0])):.4f}, max={np.max(np.abs(coeffs[0])):.4f}")
 
 # Compute characteristics for multiple levels
 chars = [compute_characteristics([coeffs[i : i + 1]], fs, 1)[0] for i in range(nlevels)]
@@ -42,22 +48,17 @@ centered = [center_characteristics([c])[0] for c in chars]
 # Plot time series of centered characteristics for each level
 for level in range(nlevels):
     char_level = centered[level]
-    t_amplitude = np.linspace(0, 16, len(char_level["amplitude"]))
-    t_phase = (
-        np.linspace(0, 16, len(char_level["phase"]))
-        if len(char_level["phase"]) > 0
-        else np.array([])
-    )
-    t_frequency = (
-        np.linspace(0, 16, len(char_level["frequency"]))
-        if len(char_level["frequency"]) > 0
-        else np.array([])
-    )
+    # Adjust t_level to match original time steps, accounting for downsampling
+    downsample_factor = 2 ** level
+    t_original = np.linspace(0, 16, len(subregion))
+    t_adjusted = t_original[::downsample_factor][:len(char_level["amplitude"])]
+    t_phase = t_adjusted if len(char_level["phase"]) > 0 else np.array([])
+    t_frequency = t_adjusted if len(char_level["frequency"]) > 0 else np.array([])
 
     plt.figure(figsize=(12, 8))
     plt.subplot(3, 1, 1)
     plt.plot(
-        t_amplitude,
+        t_adjusted,
         char_level["amplitude"],
         label=f"Centered Amplitude (Level {level})",
     )
