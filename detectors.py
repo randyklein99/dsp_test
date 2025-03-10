@@ -1,31 +1,9 @@
 import numpy as np
 from scipy import signal as sig
-from dtcwt_utils import run_dtcwt
-
-
-def dtcwt_detector(signal, t, threshold_multiplier=2.5):
-    """
-    Detect bursts using DTCWT energy (to be replaced).
-
-    Args:
-        signal (np.ndarray): Input signal.
-        t (np.ndarray): Time array.
-        threshold_multiplier (float): Multiplier for noise threshold (mean + k*std).
-
-    Returns:
-        tuple: (detected, mag_dtcwt, threshold_dtcwt, t_dtcwt)
-    """
-    mag_dtcwt = run_dtcwt(signal, t)
-    t_dtcwt = t[::2]
-    noise_mask = t_dtcwt * 1e6 < 10.0
-    noise_mag = mag_dtcwt[noise_mask]
-    threshold_dtcwt = np.mean(noise_mag) + threshold_multiplier * np.std(noise_mag)
-    detected = mag_dtcwt > threshold_dtcwt
-    return detected, mag_dtcwt, threshold_dtcwt, t_dtcwt
-
+from dtcwt import Transform1d
 
 def variance_trajectory_detector(
-    signal, t, window_size=320, threshold_multiplier=0.5, nlevels=4, venv_path=None
+    signal, t, window_size=320, threshold_multiplier=0.5, nlevels=4
 ):
     """
     Detect bursts using a variance trajectory with DTCWT enhancement.
@@ -36,7 +14,6 @@ def variance_trajectory_detector(
     - window_size: Size of the sliding window (320 ~ 16 µs at 20 MHz)
     - threshold_multiplier: Multiplier for variance threshold (0.5)
     - nlevels: Number of DTCWT decomposition levels
-    - venv_path: Path to virtual environment for DTCWT subprocess (optional)
 
     Returns:
     - detected: Boolean array indicating detected bursts
@@ -45,8 +22,13 @@ def variance_trajectory_detector(
     - enhanced: Enhanced signal magnitude
     """
     # Step 1: Enhance signal with DTCWT highpass coefficients
-    coeffs = run_dtcwt(signal, t, nlevels=nlevels, venv_path=venv_path)
-    highpass_level_0 = np.array(coeffs[0], dtype=complex).flatten()
+    # Ensure signal length is a power of 2 for DTCWT
+    target_length = 2 ** int(np.ceil(np.log2(len(signal))))
+    signal_padded = np.pad(signal, (0, target_length - len(signal)), mode="constant")
+    
+    transform = Transform1d()
+    coeffs = transform.forward(signal_padded, nlevels=nlevels)
+    highpass_level_0 = np.array(coeffs.highpasses[0], dtype=complex).flatten()
 
     # Upsample to match signal length
     enhanced = np.zeros_like(signal, dtype=complex)
@@ -65,8 +47,8 @@ def variance_trajectory_detector(
         window = enhanced_mag[i : i + window_size]
         variance_traj[i] = np.var(window)
 
-    # Step 3: Threshold based on noise (incorrectly uses signal region)
-    noise_mask = t[: len(variance_traj)] * 1e6 < -1.0  # This is broken as t starts at 0
+    # Step 3: Threshold based on noise (fixing the noise mask logic)
+    noise_mask = t[: len(variance_traj)] * 1e6 < 10.0  # Assumes noise before 10 µs
     noise_var = (
         variance_traj[noise_mask] if np.any(noise_mask) else variance_traj[:window_size]
     )

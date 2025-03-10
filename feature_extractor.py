@@ -1,9 +1,8 @@
 import numpy as np
 from scipy import stats
-from dtcwt_utils import run_dtcwt
+from dtcwt import Transform1d
 from scipy.signal import medfilt, butter, filtfilt
 from numpy.polynomial.polynomial import Polynomial
-
 
 def compute_characteristics(coeffs, fs, nlevels=5):
     """
@@ -39,47 +38,36 @@ def compute_characteristics(coeffs, fs, nlevels=5):
             iteration += 1
         phase_unwrapped = np.unwrap(phase_smooth)
         # Apply minimal smoothing before differentiation to retain variation
-        phase_unwrapped = medfilt(phase_unwrapped, kernel_size=3)  # Changed to 3
+        phase_unwrapped = medfilt(phase_unwrapped, kernel_size=3)
         # Remove trend
         t_samples = np.arange(len(phase_unwrapped))
-        poly = Polynomial.fit(
-            t_samples, phase_unwrapped, deg=5
-        )  # Quintic trend removal
+        poly = Polynomial.fit(t_samples, phase_unwrapped, deg=5)  # Quintic trend removal
         phase_unwrapped = phase_unwrapped - poly(t_samples)
         # Normalize phase to [-π, π]
         phase_unwrapped = np.mod(phase_unwrapped + np.pi, 2 * np.pi) - np.pi
-        delta_t = max(
-            (2**j) / fs, 1 / fs
-        )  # Minimum delta_t to prevent excessive amplification
+        delta_t = max((2**j) / fs, 1 / fs)  # Minimum delta_t to prevent excessive amplification
         if len(phase_unwrapped) > 1:  # Need at least 2 points for fitting
             # Estimate frequency from phase difference
             frequency = np.diff(phase_unwrapped) / (2 * np.pi * delta_t)
             frequency = np.pad(frequency, (0, 1), mode="edge")  # Extend to match length
             # Apply light smoothing after differentiation to retain variation
-            frequency = medfilt(frequency, kernel_size=3)  # Changed to 3
+            frequency = medfilt(frequency, kernel_size=3)
             # Apply low-pass filter (cutoff at 50 Hz) only if length is sufficient
             if len(frequency) > 9:  # padlen is 9 for order 2 Butterworth filter
-                b, a = butter(2, 50 / (fs / 2), btype="low")  # Reduced cutoff to 50 Hz
+                b, a = butter(2, 50 / (fs / 2), btype="low")
                 frequency = filtfilt(b, a, frequency)
             # Additional light moving average for stability
-            window_size = 2  # Kept at 2
-            frequency = np.convolve(
-                frequency, np.ones(window_size) / window_size, mode="same"
-            )
-            # Debug frequency before clipping
-            print(f"Level {j} - Frequency before clipping: {frequency}")
+            window_size = 2
+            frequency = np.convolve(frequency, np.ones(window_size) / window_size, mode="same")
             # Clip to expected range (±75 Hz to allow more variation)
-            frequency = np.clip(frequency, -75, 75)  # Expanded range to ±75 Hz
-            print(f"Level {j} - Frequency after clipping: {frequency}")
+            frequency = np.clip(frequency, -75, 75)
         else:
-            frequency = np.array([])  # Empty array if insufficient data
+            frequency = np.array([])
         # Amplify LTF amplitude
         amplitude_ltf = amplitude.copy()
-        if len(amplitude) > 160:  # Triple amplitude in LTF if array is long enough
+        if len(amplitude) > 160:
             amplitude_ltf[160:] *= 3  # Increased scaling factor
-        t_level = (
-            np.arange(len(highpass_j)) * delta_t * 1e6
-        )  # Convert to µs for 16 µs range
+        t_level = np.arange(len(highpass_j)) * delta_t * 1e6  # Convert to µs for 16 µs range
         characteristics.append(
             {
                 "amplitude": amplitude_ltf,
@@ -89,7 +77,6 @@ def compute_characteristics(coeffs, fs, nlevels=5):
             }
         )
     return characteristics
-
 
 def center_characteristics(characteristics):
     """
@@ -109,9 +96,7 @@ def center_characteristics(characteristics):
         t = char["t"]
         # Center amplitude only if mean is significant
         amp_mean = np.mean(amp)
-        centered_amp = (
-            amp - amp_mean if abs(amp_mean) > 0.1 else amp
-        )  # Threshold to avoid over-centering
+        centered_amp = amp - amp_mean if abs(amp_mean) > 0.1 else amp
         # Preserve phase and frequency variations without mean subtraction
         centered_phi = phi
         centered_freq = freq
@@ -124,7 +109,6 @@ def center_characteristics(characteristics):
             }
         )
     return centered
-
 
 def compute_statistics(centered_characteristics):
     """
@@ -157,25 +141,13 @@ def compute_statistics(centered_characteristics):
             if len(freq) > 1
             else [0.0, 0.0, 0.0]
         )
-        # Debug original stats
-        print(f"Level {level} - Original Amp stats: {amp_stats}")
-        print(f"Level {level} - Original Phi stats: {phi_stats}")
-        print(f"Level {level} - Original Freq stats: {freq_stats}")
         # Replace nan/inf values with 0 to ensure finite feature vector
         all_stats = amp_stats + phi_stats + freq_stats
         adjusted_stats = [0.0 if np.isnan(x) or np.isinf(x) else x for x in all_stats]
-        amp_stats = adjusted_stats[:3]
-        phi_stats = adjusted_stats[3:6]
-        freq_stats = adjusted_stats[6:9]
-        # Debug adjusted stats
-        print(f"Level {level} - Adjusted Amp stats: {amp_stats}")
-        print(f"Level {level} - Adjusted Phi stats: {phi_stats}")
-        print(f"Level {level} - Adjusted Freq stats: {freq_stats}")
         stats_list.append(adjusted_stats)
     return stats_list
 
-
-def extract_features(signal, t, fs, preamble_start=10e-6, venv_path=None):
+def extract_features(signal, t, fs, preamble_start=10e-6):
     """
     Extract a 135-element feature vector from the signal based on DTCWT characteristics.
 
@@ -184,49 +156,37 @@ def extract_features(signal, t, fs, preamble_start=10e-6, venv_path=None):
         t (np.ndarray): Time array corresponding to the signal.
         fs (float): Sampling frequency in Hz.
         preamble_start (float): Start time of the preamble in seconds (default: 10e-6).
-        venv_path (str): Path to the virtual environment to use for subprocess (default: None).
 
     Returns:
         np.ndarray: 135-element feature vector.
     """
-    # Validate signal and time array lengths
     if len(signal) != len(t):
         raise ValueError(
             f"Signal length ({len(signal)}) does not match time array length ({len(t)})"
         )
 
-    # Check for NaN or inf in signal
     if not np.all(np.isfinite(signal)):
         raise ValueError("Signal contains NaN or inf values")
 
-    # Validate fs
     if not np.isfinite(fs) or fs <= 0:
         raise ValueError(f"Sampling frequency fs={fs} must be positive and finite")
-    print(f"fs: {fs}")  # Debugging
 
     # Define subregion durations
     short_duration = 8e-6  # 8 µs for short subregion (STF)
     long_duration = 8e-6  # 8 µs for long subregion (LTF with guard)
     combined_duration = short_duration + long_duration  # 16 µs for combined subregion
-    print(
-        f"short_duration: {short_duration}, long_duration: {long_duration}, combined_duration: {combined_duration}"
-    )  # Debugging
 
     # Compute expected subregion lengths (ensure divisible by 2)
-    samples_per_us = fs / 1e6  # Samples per microsecond
-    print(f"samples_per_us: {samples_per_us}")  # Debugging
-    short_len = int(fs * short_duration)  # Compute directly with fs
-    if short_len % 2 != 0:  # Ensure divisible by 2 for DTCWT
-        short_len = short_len - 1
-    combined_len = int(fs * combined_duration)  # Compute directly with fs
+    short_len = int(fs * short_duration)
+    if short_len % 2 != 0:
+        short_len -= 1
+    combined_len = int(fs * combined_duration)
     if combined_len % 2 != 0:
-        combined_len = combined_len - 1
-    print(f"short_len: {short_len}, combined_len: {combined_len}")  # Debugging
+        combined_len -= 1
 
     # Compute preamble start index
-    idx_start = int(preamble_start * fs / 1e6)
+    idx_start = int(preamble_start * fs)
     idx_start = max(0, min(idx_start, len(signal) - combined_len))
-    print(f"idx_start: {idx_start}")  # Debugging
 
     # Compute subregion indices
     idx_sub1_end = idx_start + short_len  # End of short subregion (STF)
@@ -236,7 +196,6 @@ def extract_features(signal, t, fs, preamble_start=10e-6, venv_path=None):
     # Ensure indices are within bounds
     idx_sub2_end = min(idx_sub2_end, len(signal))
     idx_sub1_end = min(idx_sub1_end, idx_sub2_end)
-    print(f"idx_sub1_end: {idx_sub1_end}, idx_sub2_end: {idx_sub2_end}")  # Debugging
 
     # Extract subregions
     sub1 = signal[idx_start:idx_sub1_end]  # Short subregion (STF)
@@ -245,9 +204,6 @@ def extract_features(signal, t, fs, preamble_start=10e-6, venv_path=None):
     t_sub1 = t[idx_start:idx_sub1_end]
     t_sub2 = t[idx_sub2_start:idx_sub2_end]
     t_sub3 = t[idx_start:idx_sub2_end]
-    print(
-        f"sub1 length: {len(sub1)}, sub2 length: {len(sub2)}, sub3 length: {len(sub3)}"
-    )  # Debugging
 
     # Validate subregion lengths
     if len(sub1) != short_len:
@@ -261,15 +217,24 @@ def extract_features(signal, t, fs, preamble_start=10e-6, venv_path=None):
             f"Combined subregion length is {len(sub3)}, expected {combined_len}"
         )
 
-    # Validate subregion content for NaN or inf
-    for sub, name in [(sub1, "short"), (sub2, "long"), (sub3, "combined")]:
-        if not np.all(np.isfinite(sub)):
-            raise ValueError(f"{name} subregion contains NaN or inf values")
-
-    # Perform DTCWT decomposition for each subregion with venv_path
-    coeffs1 = run_dtcwt(sub1, t_sub1, nlevels=5, venv_path=venv_path)
-    coeffs2 = run_dtcwt(sub2, t_sub2, nlevels=5, venv_path=venv_path)
-    coeffs3 = run_dtcwt(sub3, t_sub3, nlevels=5, venv_path=venv_path)
+    # Perform DTCWT decomposition for each subregion directly
+    transform = Transform1d()
+    nlevels = 5
+    # Subregion 1 (STF)
+    target_length1 = 2 ** int(np.ceil(np.log2(len(sub1))))
+    sub1_padded = np.pad(sub1, (0, target_length1 - len(sub1)), mode="constant")
+    coeffs1 = transform.forward(sub1_padded, nlevels=nlevels)
+    coeffs1 = [np.array(c) for c in coeffs1.highpasses]
+    # Subregion 2 (LTF)
+    target_length2 = 2 ** int(np.ceil(np.log2(len(sub2))))
+    sub2_padded = np.pad(sub2, (0, target_length2 - len(sub2)), mode="constant")
+    coeffs2 = transform.forward(sub2_padded, nlevels=nlevels)
+    coeffs2 = [np.array(c) for c in coeffs2.highpasses]
+    # Subregion 3 (Combined)
+    target_length3 = 2 ** int(np.ceil(np.log2(len(sub3))))
+    sub3_padded = np.pad(sub3, (0, target_length3 - len(sub3)), mode="constant")
+    coeffs3 = transform.forward(sub3_padded, nlevels=nlevels)
+    coeffs3 = [np.array(c) for c in coeffs3.highpasses]
 
     # Compute characteristics and center them
     chars1 = compute_characteristics(coeffs1, fs, nlevels=5)
@@ -280,9 +245,9 @@ def extract_features(signal, t, fs, preamble_start=10e-6, venv_path=None):
     centered3 = [center_characteristics([c])[0] for c in chars3]
 
     # Compute statistics for each level and subregion, prioritizing level 3
-    stats1 = compute_statistics([centered1[3]])  # Use level 3 for short subregion
-    stats2 = compute_statistics([centered2[3]])  # Use level 3 for long subregion
-    stats3 = compute_statistics([centered3[3]])  # Use level 3 for combined subregion
+    stats1 = compute_statistics([centered1[3]])
+    stats2 = compute_statistics([centered2[3]])
+    stats3 = compute_statistics([centered3[3]])
 
     # Flatten the feature vector (3 subregions x 1 level x 3 characteristics x 3 stats)
     feature_vector = np.array(stats1 + stats2 + stats3).flatten()

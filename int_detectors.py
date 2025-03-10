@@ -8,9 +8,6 @@ from detectors import variance_trajectory_detector, matched_filter_detector
 fs = 20e6  # Sampling frequency in Hz (can be changed)
 add_rf_fingerprint = True  # Option to enable RF fingerprint simulation
 seed = 42  # Fixed seed for reproducibility of RF fingerprint (optional)
-venv_path = (
-    ".venv_dtcwt"  # Explicitly specify virtual environment path
-)
 
 # Generate signal using the updated 802.11 a/g preamble generator
 t, input_signal = generate_80211ag_preamble(
@@ -45,7 +42,7 @@ print("Signal length:", len(input_signal))
 
 # Apply detectors
 detected_var, variance_traj, threshold_var, denoised = variance_trajectory_detector(
-    input_signal, t, venv_path=venv_path
+    input_signal, t
 )
 detected_mf, mf_output, threshold_mf = matched_filter_detector(input_signal, stf, fs=fs)
 

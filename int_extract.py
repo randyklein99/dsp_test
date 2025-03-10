@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from signal_generator import generate_80211ag_preamble
-from dtcwt_utils import run_dtcwt
+from dtcwt import Transform1d
 from feature_extractor import (
     compute_characteristics,
     center_characteristics,
@@ -17,9 +17,6 @@ t_start = 0  # Start time of the subregion in signal (0 µs, since no noise)
 t_end = 16e-6  # End time of the subregion in signal (16 µs)
 add_rf_fingerprint = True  # Option to enable RF fingerprint simulation
 seed = 42  # Fixed seed for reproducibility of RF fingerprint
-venv_path = (
-    ".venv_dtcwt"  # Explicitly specify virtual environment path
-)
 
 # Generate the signal with optional RF fingerprint
 t, input_signal = generate_80211ag_preamble(
@@ -31,8 +28,12 @@ idx_combined = (t >= t_start) & (t < t_end)
 subregion = input_signal[idx_combined]
 t_sub = t[idx_combined]
 
-# Perform DTCWT decomposition on the subregion
-coeffs = run_dtcwt(subregion, t_sub, nlevels=nlevels, venv_path=venv_path)
+# Perform DTCWT decomposition on the subregion directly
+target_length = 2 ** int(np.ceil(np.log2(len(subregion))))
+subregion_padded = np.pad(subregion, (0, target_length - len(subregion)), mode="constant")
+transform = Transform1d()
+coeffs = transform.forward(subregion_padded, nlevels=nlevels)
+coeffs = [np.array(c) for c in coeffs.highpasses]  # Extract highpass coefficients
 
 # Compute characteristics for multiple levels
 chars = [compute_characteristics([coeffs[i : i + 1]], fs, 1)[0] for i in range(nlevels)]
@@ -107,7 +108,7 @@ for level in [0, 3]:
 
 # Compute and print the complete 135-element feature vector
 feature_vector = extract_features(
-    input_signal, t, fs, preamble_start=0, venv_path=venv_path
+    input_signal, t, fs, preamble_start=0
 )
 print("\nComplete 135-Element Feature Vector:")
 for i, value in enumerate(feature_vector):
