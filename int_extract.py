@@ -1,15 +1,8 @@
-# %% Cell 3: Visualize feature extraction for combined subregion
+# %% Cell 3: Visualize feature extraction for combined subregion and heatmap
 import numpy as np
 import matplotlib.pyplot as plt
 from signal_generator import generate_80211ag_preamble
-from dtcwt import Transform1d
-from feature_extractor import (
-    compute_characteristics,
-    center_characteristics,
-    compute_statistics,
-    extract_features,
-)
-from scipy.signal import butter, filtfilt
+from feature_extractor import extract_features, compute_statistics  # Added compute_statistics import
 
 # Define parameters
 fs = 20e6  # Sampling frequency in Hz
@@ -32,18 +25,13 @@ print(f"Subregion length: {len(subregion)}, Expected samples: {int((t_end - t_st
 print(f"Subregion t_sub range: min={t_sub[0]*1e6:.2f}µs, max={t_sub[-1]*1e6:.2f}µs")
 print(f"Subregion amplitude range: min={np.min(np.abs(subregion)):.4f}, max={np.max(np.abs(subregion)):.4f}")
 
-# Perform DTCWT decomposition on the subregion directly
-target_length = 2 ** int(np.ceil(np.log2(len(subregion))))
-subregion_padded = np.pad(subregion, (0, target_length - len(subregion)), mode="reflect")
-print(f"Padded subregion length: {len(subregion_padded)}")
-transform = Transform1d()
-coeffs = transform.forward(subregion_padded, nlevels=nlevels)
-coeffs = [np.array(c) for c in coeffs.highpasses]
-print(f"Coefficients level 0 length: {len(coeffs[0])}, range: min={np.min(np.abs(coeffs[0])):.4f}, max={np.max(np.abs(coeffs[0])):.4f}")
+# Extract features and get centered characteristics
+feature_vector, centered_chars = extract_features(
+    input_signal, t, fs, preamble_start=0
+)
 
-# Compute characteristics for multiple levels
-chars = [compute_characteristics([coeffs[i : i + 1]], fs, 1)[0] for i in range(nlevels)]
-centered = [center_characteristics([c])[0] for c in chars]
+# Use the centered characteristics for the combined subregion (sub3)
+centered = centered_chars['sub3']
 
 # Plot time series of centered characteristics for each level
 for level in range(nlevels):
@@ -94,7 +82,8 @@ for level in range(nlevels):
             transform=plt.gca().transAxes,
         )
     plt.xlabel("Time (µs)")
-    plt.ylabel("Frequency (Hz)")
+    plt.ylabel("Relative Frequency (unitless)")
+    plt.legend()
 
     plt.tight_layout()
     plt.show()
@@ -107,12 +96,35 @@ for level in [0, 3]:
     print(f"Phase: var={stats[3]:.4f}, skew={stats[4]:.4f}, kurt={stats[5]:.4f}")
     print(f"Frequency: var={stats[6]:.4f}, skew={stats[7]:.4f}, kurt={stats[8]:.4f}")
 
-# Compute and print the complete 135-element feature vector
-feature_vector = extract_features(
-    input_signal, t, fs, preamble_start=0
-)
+# Print the complete 135-element feature vector
 print("\nComplete 135-Element Feature Vector:")
 for i, value in enumerate(feature_vector):
     print(f"Feature {i+1:3d}: {value:.4f}")
+
+# Add heatmap plotting with separate normalization
+# For demonstration, use a single burst (extend later for multiple bursts/devices)
+feature_matrix = feature_vector.reshape(15, 9)  # 15 segments x 9 stats
+amp_stats = feature_matrix[:, :3]  # Variance, skew, kurtosis for amplitude (3 stats)
+phase_stats = feature_matrix[:, 3:6]  # Variance, skew, kurtosis for phase (3 stats)
+freq_stats = feature_matrix[:, 6:9]  # Variance, skew, kurtosis for frequency (3 stats)
+
+# Apply separate min-max normalization for each feature type
+amp_normalized = (amp_stats - np.min(amp_stats)) / (np.max(amp_stats) - np.min(amp_stats) + 1e-10)  # Avoid division by zero
+phase_normalized = (phase_stats - np.min(phase_stats)) / (np.max(phase_stats) - np.min(phase_stats) + 1e-10)
+freq_normalized = (freq_stats - np.min(freq_stats)) / (np.max(freq_stats) - np.min(freq_stats) + 1e-10)
+
+# Combine normalized stats into a single matrix for plotting
+normalized_matrix = np.hstack((amp_normalized, phase_normalized, freq_normalized))
+
+# Plot heatmap
+plt.figure(figsize=(12, 6))
+plt.imshow(normalized_matrix, cmap='jet', aspect='auto', vmin=0, vmax=1)
+plt.colorbar(label='Normalized Value')
+plt.title('WD Fingerprint (Single Burst, Separate Normalization)')
+plt.xlabel('Statistic (1-9: var, skew, kurt for amp, phase, freq)')
+plt.ylabel('Segment (1-15)')
+plt.xticks(np.arange(9), ['Var Amp', 'Skew Amp', 'Kurt Amp', 'Var Phase', 'Skew Phase', 'Kurt Phase', 'Var Freq', 'Skew Freq', 'Kurt Freq'])
+plt.yticks(np.arange(15), np.arange(1, 16))
+plt.show()
 
 # %%
