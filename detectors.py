@@ -1,3 +1,4 @@
+# detectors.py
 import numpy as np
 from scipy import signal as sig
 from dtcwt import Transform1d
@@ -21,6 +22,11 @@ def variance_trajectory_detector(
     - threshold_var: Variance threshold used for detection
     - enhanced: Enhanced signal magnitude
     """
+    if len(signal) == 0 or len(t) == 0:
+        raise ValueError("Signal and time array must be non-empty")
+    if len(signal) != len(t):
+        raise ValueError("Signal and time array lengths must match")
+
     # Step 1: Enhance signal with DTCWT highpass coefficients
     # Ensure signal length is a power of 2 for DTCWT
     target_length = 2 ** int(np.ceil(np.log2(len(signal))))
@@ -47,13 +53,12 @@ def variance_trajectory_detector(
         window = enhanced_mag[i : i + window_size]
         variance_traj[i] = np.var(window)
 
-    # Step 3: Threshold based on noise (fixing the noise mask logic)
-    noise_mask = t[: len(variance_traj)] * 1e6 < 10.0  # Assumes noise before 10 µs
-    noise_var = (
-        variance_traj[noise_mask] if np.any(noise_mask) else variance_traj[:window_size]
-    )
-    threshold_var = np.mean(noise_var) + threshold_multiplier * np.std(noise_var)
-    print(f"Noise variance mean: {np.mean(noise_var)}, std: {np.std(noise_var)}")
+    # Step 3: Threshold based on noise
+    noise_mask = t[: len(variance_traj)] * 1e6 < 10.0
+    noise_var = variance_traj[noise_mask] if np.any(noise_mask) else variance_traj
+    mean_var, std_var = np.mean(noise_var), np.std(noise_var) or np.std(variance_traj)
+    threshold_var = mean_var + threshold_multiplier * std_var
+    print(f"Noise variance mean: {mean_var}, std: {std_var}")
     print(f"Variance threshold: {threshold_var}")
     print(f"Variance trajectory max: {np.max(variance_traj)}")
 
@@ -66,7 +71,6 @@ def variance_trajectory_detector(
             detected[i:end_idx] = True
 
     return detected, variance_traj, threshold_var, enhanced_mag
-
 
 def matched_filter_detector(signal, template, threshold_fraction=0.5, fs=20e6):
     """

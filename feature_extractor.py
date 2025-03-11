@@ -1,3 +1,4 @@
+# feature_extractor.py
 import numpy as np
 from scipy import stats
 from dtcwt import Transform1d
@@ -37,8 +38,9 @@ def compute_characteristics(coeffs, fs, nlevels=5, debug_level=0):
             phase_detrended = phase_unwrapped - coeffs_poly(t_samples)
             if debug_level >= 2:
                 print(f"Level {j} - Phase unwrapped (after polynomial detrending): min={np.min(phase_detrended):.4f}, max={np.max(phase_detrended):.4f}")
-            # Compute instantaneous frequency using gradient on detrended phase
-            frequency = np.gradient(phase_detrended, delta_t) / (2 * np.pi)
+            # Compute instantaneous frequency using diff to match length
+            freq_deriv = np.diff(phase_detrended) / delta_t
+            frequency = np.concatenate([freq_deriv, [freq_deriv[-1]]]) / (2 * np.pi)
             if debug_level >= 2:
                 print(f"Level {j} - Frequency (after gradient): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
             # Center frequency
@@ -225,7 +227,6 @@ def extract_features(signal, t, fs, preamble_start=10e-6, debug_level=0):
         for i, char in enumerate(chars1):
             print(f"chars1[{i}] type: {type(char)}")
 
-    # Fix: Remove the extra list layer by calling center_characteristics directly
     centered1 = [center_characteristics(c) for c in chars1]
     centered2 = [center_characteristics(c) for c in chars2]
     centered3 = [center_characteristics(c) for c in chars3]

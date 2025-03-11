@@ -1,3 +1,4 @@
+# signal_generator.py
 import numpy as np
 
 
@@ -13,6 +14,9 @@ def generate_80211ag_preamble(fs=20e6, add_rf_fingerprint=False, seed=None):
     Returns:
         tuple: (t, preamble) where t is the time array and preamble is the signal.
     """
+    if not isinstance(fs, (int, float)) or fs <= 0:
+        raise ValueError("Sampling frequency must be positive")
+    
     fft_size = 64
     # Scale samples per symbol based on sampling frequency (3.2 µs is standard long symbol duration)
     samples_per_symbol = int(fs * 3.2e-6)  # 64 samples at 20 MHz, scales with fs
