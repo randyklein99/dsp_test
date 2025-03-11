@@ -4,7 +4,7 @@ from dtcwt import Transform1d
 from scipy.signal import medfilt
 from numpy.polynomial.polynomial import Polynomial
 
-def compute_characteristics(coeffs, fs, nlevels=5):
+def compute_characteristics(coeffs, fs, nlevels=5, debug_level=0):
     """
     Compute amplitude, phase, and frequency characteristics from DTCWT coefficients.
 
@@ -12,6 +12,7 @@ def compute_characteristics(coeffs, fs, nlevels=5):
         coeffs (list): List of highpass coefficients for each level.
         fs (float): Sampling frequency in Hz.
         nlevels (int): Number of decomposition levels.
+        debug_level (int): Debugging level (0 = no debug, 1 = basic, 2 = detailed).
 
     Returns:
         list: List of dictionaries containing 'amplitude', 'phase_unwrapped', 'frequency', and 't' for each level.
@@ -19,11 +20,14 @@ def compute_characteristics(coeffs, fs, nlevels=5):
     characteristics = []
     for j in range(nlevels):
         highpass_j = np.squeeze(coeffs[j])  # Remove extra dimensions to ensure 1D array
+        if debug_level >= 2:
+            print(f"Level {j} - highpass_j type: {type(highpass_j)}, shape: {highpass_j.shape}")
         amplitude = np.abs(highpass_j)
         phase = np.angle(highpass_j)
         # Simplified phase unwrapping
         phase_unwrapped = np.unwrap(phase)
-        print(f"Level {j} - Phase unwrapped (before trend removal): min={np.min(phase_unwrapped):.4f}, max={np.max(phase_unwrapped):.4f}")
+        if debug_level >= 2:
+            print(f"Level {j} - Phase unwrapped (before trend removal): min={np.min(phase_unwrapped):.4f}, max={np.max(phase_unwrapped):.4f}")
         # MATLAB-style phase detrending using polynomial fit
         delta_t = max((2**j) / fs, 1 / fs)  # Minimum delta_t
         if len(phase_unwrapped) > 1:
@@ -31,29 +35,35 @@ def compute_characteristics(coeffs, fs, nlevels=5):
             # Fit a polynomial (degree 2 for linear + quadratic trend) to remove the dominant phase trend
             coeffs_poly = Polynomial.fit(t_samples, phase_unwrapped, deg=2)
             phase_detrended = phase_unwrapped - coeffs_poly(t_samples)
-            print(f"Level {j} - Phase unwrapped (after polynomial detrending): min={np.min(phase_detrended):.4f}, max={np.max(phase_detrended):.4f}")
+            if debug_level >= 2:
+                print(f"Level {j} - Phase unwrapped (after polynomial detrending): min={np.min(phase_detrended):.4f}, max={np.max(phase_detrended):.4f}")
             # Compute instantaneous frequency using gradient on detrended phase
             frequency = np.gradient(phase_detrended, delta_t) / (2 * np.pi)
-            print(f"Level {j} - Frequency (after gradient): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
+            if debug_level >= 2:
+                print(f"Level {j} - Frequency (after gradient): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
             # Center frequency
             mu_f = np.mean(frequency)
             frequency = frequency - mu_f
-            print(f"Level {j} - Frequency (after centering): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
+            if debug_level >= 2:
+                print(f"Level {j} - Frequency (after centering): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
             # Light smoothing to reduce spikiness, with adaptive kernel size
             if len(frequency) > 3:
                 # Adjust kernel size based on level to avoid over-smoothing at higher levels
-                base_kernel = max(3 - j, 1)  # Base calculation (e.g., 3 at Level 0, 1 at Level 4)
-                kernel_size = base_kernel if base_kernel % 2 == 1 else base_kernel + 1  # Ensure odd by incrementing if even
+                base_kernel = max(3 - j, 1)
+                kernel_size = base_kernel if base_kernel % 2 == 1 else base_kernel + 1  # Ensure odd
                 frequency = medfilt(frequency, kernel_size=kernel_size)
-            print(f"Level {j} - Frequency (after smoothing with kernel size {kernel_size}): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
+            if debug_level >= 2:
+                print(f"Level {j} - Frequency (after smoothing with kernel size {kernel_size}): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
             # Scale frequency by the center frequency of the wavelet band at this level
             center_freq = fs / (2**(j+1))  # Center frequency of the highpass band
             frequency = frequency / center_freq  # Normalize to a relative deviation (unitless)
-            print(f"Level {j} - Frequency (after scaling by center freq {center_freq:.2f} Hz): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
+            if debug_level >= 1:
+                print(f"Level {j} - Frequency (after scaling by center freq {center_freq:.2f} Hz): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
         else:
             frequency = np.array([])
             phase_detrended = phase_unwrapped
-        print(f"Level {j} - Phase unwrapped (final): min={np.min(phase_detrended):.4f}, max={np.max(phase_detrended):.4f}")
+        if debug_level >= 2:
+            print(f"Level {j} - Phase unwrapped (final): min={np.min(phase_detrended):.4f}, max={np.max(phase_detrended):.4f}")
         # Amplify LTF amplitude
         amplitude_ltf = amplitude.copy()
         ltf_start_idx = int(8e-6 / delta_t)
@@ -72,29 +82,37 @@ def compute_characteristics(coeffs, fs, nlevels=5):
 def center_characteristics(characteristics):
     """
     Center the characteristics by removing means, matching MATLAB logic.
-    """
-    centered = []
-    for char in characteristics:
-        amp = char["amplitude"]
-        phi = char["phase_unwrapped"]
-        freq = char["frequency"]
-        t = char["t"]
-        centered_amp = amp - np.mean(amp)
-        centered_phi = phi - np.mean(phi)
-        centered_freq = freq  # Already centered in compute_characteristics
-        centered.append(
-            {
-                "amplitude": centered_amp,
-                "phase": centered_phi,
-                "frequency": centered_freq,
-                "t": t,
-            }
-        )
-    return centered
 
-def compute_statistics(centered_characteristics):
+    Args:
+        characteristics (dict): Dictionary containing characteristics.
+
+    Returns:
+        dict: Centered characteristics.
+    """
+    amp = characteristics["amplitude"]
+    phi = characteristics["phase_unwrapped"]
+    freq = characteristics["frequency"]
+    t = characteristics["t"]
+    centered_amp = amp - np.mean(amp)
+    centered_phi = phi - np.mean(phi)
+    centered_freq = freq  # Already centered in compute_characteristics
+    return {
+        "amplitude": centered_amp,
+        "phase": centered_phi,
+        "frequency": centered_freq,
+        "t": t,
+    }
+
+def compute_statistics(centered_characteristics, debug_level=0):
     """
     Compute variance, skewness, and kurtosis for each characteristic.
+
+    Args:
+        centered_characteristics (list): List of centered characteristics.
+        debug_level (int): Debugging level (0 = no debug, 1 = basic, 2 = detailed).
+
+    Returns:
+        list: List of statistics for each level.
     """
     stats_list = []
     for level, char in enumerate(centered_characteristics):
@@ -103,14 +121,15 @@ def compute_statistics(centered_characteristics):
         freq = char["frequency"]
         amp_stats = [np.var(amp), stats.skew(amp), stats.kurtosis(amp)] if len(amp) > 1 else [0.0, 0.0, 0.0]
         phi_stats = [np.var(phi), stats.skew(phi), stats.kurtosis(phi)] if len(phi) > 1 else [0.0, 0.0, 0.0]
-        print(f"Level {level} - Frequency data: min={np.min(freq):.4f}, max={np.max(freq):.4f}, var={np.var(freq):.4f}")
+        if debug_level >= 1:
+            print(f"Level {level} - Frequency data: min={np.min(freq):.4f}, max={np.max(freq):.4f}, var={np.var(freq):.4f}")
         freq_stats = [np.var(freq), stats.skew(freq), stats.kurtosis(freq)] if len(freq) > 1 and np.var(freq) > 1e-10 else [0.0, 0.0, 0.0]
         all_stats = amp_stats + phi_stats + freq_stats
         adjusted_stats = [0.0 if np.isnan(x) or np.isinf(x) else x for x in all_stats]
         stats_list.append(adjusted_stats)
     return stats_list
 
-def extract_features(signal, t, fs, preamble_start=10e-6):
+def extract_features(signal, t, fs, preamble_start=10e-6, debug_level=0):
     """
     Extract a 135-element feature vector and centered characteristics from the signal based on DTCWT.
 
@@ -119,6 +138,7 @@ def extract_features(signal, t, fs, preamble_start=10e-6):
         t (np.ndarray): Time array corresponding to the signal.
         fs (float): Sampling frequency in Hz.
         preamble_start (float): Start time of the preamble in seconds (default: 10e-6).
+        debug_level (int): Debugging level (0 = no debug, 1 = basic, 2 = detailed).
 
     Returns:
         tuple: (feature_vector, centered_chars) where:
@@ -171,6 +191,11 @@ def extract_features(signal, t, fs, preamble_start=10e-6):
     sub2 = sub2 - np.mean(sub2)
     sub3 = sub3 - np.mean(sub3)
 
+    if debug_level >= 1:
+        print(f"Subregion length: {len(sub3)}, Expected samples: {int(combined_duration * fs)}")
+        print(f"Subregion t_sub range: min={t_sub3[0]*1e6:.2f}µs, max={t_sub3[-1]*1e6:.2f}µs")
+        print(f"Subregion amplitude range: min={np.min(np.abs(sub3)):.4f}, max={np.max(np.abs(sub3)):.4f}")
+
     transform = Transform1d()
     nlevels = 5
     target_length1 = 2 ** int(np.ceil(np.log2(len(sub1))))
@@ -186,16 +211,28 @@ def extract_features(signal, t, fs, preamble_start=10e-6):
     coeffs3 = transform.forward(sub3_padded, nlevels=nlevels)
     coeffs3 = [np.array(c) for c in coeffs3.highpasses]
 
-    chars1 = compute_characteristics(coeffs1, fs, nlevels=5)
-    chars2 = compute_characteristics(coeffs2, fs, nlevels=5)
-    chars3 = compute_characteristics(coeffs3, fs, nlevels=5)
-    centered1 = [center_characteristics([c])[0] for c in chars1]
-    centered2 = [center_characteristics([c])[0] for c in chars2]
-    centered3 = [center_characteristics([c])[0] for c in chars3]
+    if debug_level >= 2:
+        print(f"coeffs1 type: {type(coeffs1)}, len: {len(coeffs1)}")
+        for i, coeff in enumerate(coeffs1):
+            print(f"coeffs1[{i}] type: {type(coeff)}, shape: {coeff.shape}")
 
-    stats1 = compute_statistics(centered1)
-    stats2 = compute_statistics(centered2)
-    stats3 = compute_statistics(centered3)
+    chars1 = compute_characteristics(coeffs1, fs, nlevels=5, debug_level=debug_level)
+    chars2 = compute_characteristics(coeffs2, fs, nlevels=5, debug_level=debug_level)
+    chars3 = compute_characteristics(coeffs3, fs, nlevels=5, debug_level=debug_level)
+
+    if debug_level >= 2:
+        print(f"chars1 type: {type(chars1)}, len: {len(chars1)}")
+        for i, char in enumerate(chars1):
+            print(f"chars1[{i}] type: {type(char)}")
+
+    # Fix: Remove the extra list layer by calling center_characteristics directly
+    centered1 = [center_characteristics(c) for c in chars1]
+    centered2 = [center_characteristics(c) for c in chars2]
+    centered3 = [center_characteristics(c) for c in chars3]
+
+    stats1 = compute_statistics(centered1, debug_level=debug_level)
+    stats2 = compute_statistics(centered2, debug_level=debug_level)
+    stats3 = compute_statistics(centered3, debug_level=debug_level)
 
     feature_vector = np.array(stats1 + stats2 + stats3).flatten()
 
