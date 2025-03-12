@@ -1,55 +1,47 @@
 import numpy as np
 from typing import Tuple, Optional
-from denoising import denoise_signal
 from scipy import signal as sig
 
 def variance_trajectory_detector(
     signal: np.ndarray,
     t: np.ndarray,
+    processed_mag: np.ndarray,
     window_size: int = 320,
     threshold_multiplier: float = 1.5,
-    use_denoised: bool = True,
+    is_denoised: bool = True,
     debug_level: int = 0
 ) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
     """
-    Detect bursts using a variance trajectory with optional denoising.
+    Detect bursts using a variance trajectory on a pre-processed signal magnitude.
 
     Args:
-        signal (np.ndarray): Input signal array (complex-valued).
+        signal (np.ndarray): Input signal array (complex-valued, unused for computation but kept for context).
         t (np.ndarray): Time vector corresponding to the signal.
+        processed_mag (np.ndarray): Pre-processed signal magnitude (raw or denoised).
         window_size (int): Size of the sliding window (default: 320 ~ 16 µs at 20 MHz).
         threshold_multiplier (float): Multiplier for variance threshold (default: 1.5).
-        use_denoised (bool): Whether to use a denoised signal (default: True).
+        is_denoised (bool): Indicates if the processed_mag is denoised (default: True).
         debug_level (int): Debugging level (0 = no debug, 1 = basic, 2 = detailed).
 
     Returns:
         Tuple[np.ndarray, float, np.ndarray, np.ndarray]: 
             - variance_traj: Variance trajectory over time.
             - threshold: Variance threshold used for detection.
-            - processed_mag: Magnitude of the processed signal (denoised or raw).
+            - processed_mag: Input processed magnitude (passed through).
             - detected: Boolean array indicating detected bursts.
     """
-    if len(signal) == 0 or len(t) == 0:
-        raise ValueError("Signal and time array must be non-empty")
-    if len(signal) != len(t):
-        raise ValueError("Signal and time array lengths must match")
+    if len(signal) == 0 or len(t) == 0 or len(processed_mag) == 0:
+        raise ValueError("Signal, time array, and processed magnitude must be non-empty")
+    if len(signal) != len(t) or len(signal) != len(processed_mag):
+        raise ValueError("Signal, time array, and processed magnitude lengths must match")
 
-    # Step 1: Process signal (denoise if requested)
-    if use_denoised:
-        processed_mag = denoise_signal(signal, t, debug_level=debug_level)
-    else:
-        # Use raw signal magnitude, centered by noise mean
-        noise_samples = int(20e-6 * (1 / (t[1] - t[0])))
-        processed_mag = np.abs(signal) - np.mean(np.abs(signal[:noise_samples]))
-        processed_mag = np.maximum(processed_mag, 0)  # Ensure non-negative
-
-    # Step 2: Compute variance trajectory
+    # Step 1: Compute variance trajectory
     variance_traj = np.zeros(len(signal) - window_size + 1)
     for i in range(len(variance_traj)):
         window = processed_mag[i : i + window_size]
         variance_traj[i] = np.var(window)
 
-    # Step 3: Threshold and detect bursts
+    # Step 2: Threshold and detect bursts
     t_var = t[window_size - 1: len(variance_traj) + window_size - 1]  # Time at end of windows
     noise_mask = (t_var * 1e6 >= 16.05) & (t_var * 1e6 < 19.95)  # Exclude 20 µs
     noise_var = variance_traj[noise_mask] if np.any(noise_mask) else variance_traj[1:-1]
@@ -68,7 +60,7 @@ def variance_trajectory_detector(
     if debug_level >= 1:
         print(f"Variance trajectory max: {np.max(variance_traj)}")
 
-    # Step 4: Detect bursts
+    # Step 3: Detect bursts
     detected = np.zeros(len(signal), dtype=bool)
     for i in range(len(variance_traj)):
         if variance_traj[i] > threshold and t[i + window_size - 1] * 1e6 >= 20.0:

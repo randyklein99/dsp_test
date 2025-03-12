@@ -44,13 +44,17 @@ def main():
     if debug_level >= 0:
         print("Signal length:", len(input_signal))
 
-    # Apply detectors
+    # Compute magnitudes
+    raw_mag = np.abs(input_signal) - np.mean(np.abs(input_signal[:noise_samples]))
+    raw_mag = np.maximum(raw_mag, 0)
     denoised_mag = denoise_signal(input_signal, t, debug_level=debug_level)
+
+    # Apply detectors
     variance_traj_denoised, threshold_var_denoised, _, detected_denoised = variance_trajectory_detector(
-        input_signal, t, threshold_multiplier=1.5, use_denoised=True, debug_level=debug_level
+        input_signal, t, processed_mag=denoised_mag, is_denoised=True, debug_level=debug_level
     )
     variance_traj_raw, threshold_var_raw, _, detected_raw = variance_trajectory_detector(
-        input_signal, t, threshold_multiplier=1.5, use_denoised=False, debug_level=debug_level
+        input_signal, t, processed_mag=raw_mag, is_denoised=False, debug_level=debug_level
     )
     detected_mf, mf_output, threshold_mf = matched_filter_detector(input_signal, stf, fs=fs)
 
