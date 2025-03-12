@@ -8,7 +8,6 @@ def variance_trajectory_detector(
     processed_mag: np.ndarray,
     window_size: int = 320,
     threshold_multiplier: float = 1.5,
-    is_denoised: bool = True,
     debug_level: int = 0
 ) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
     """
@@ -17,10 +16,9 @@ def variance_trajectory_detector(
     Args:
         signal (np.ndarray): Input signal array (complex-valued, unused for computation but kept for context).
         t (np.ndarray): Time vector corresponding to the signal.
-        processed_mag (np.ndarray): Pre-processed signal magnitude (raw or denoised).
+        processed_mag (np.ndarray): Pre-processed signal magnitude (e.g., raw or denoised).
         window_size (int): Size of the sliding window (default: 320 ~ 16 µs at 20 MHz).
         threshold_multiplier (float): Multiplier for variance threshold (default: 1.5).
-        is_denoised (bool): Indicates if the processed_mag is denoised (default: True).
         debug_level (int): Debugging level (0 = no debug, 1 = basic, 2 = detailed).
 
     Returns:

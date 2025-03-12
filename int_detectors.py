@@ -51,10 +51,10 @@ def main():
 
     # Apply detectors
     variance_traj_denoised, threshold_var_denoised, _, detected_denoised = variance_trajectory_detector(
-        input_signal, t, processed_mag=denoised_mag, is_denoised=True, debug_level=debug_level
+        input_signal, t, processed_mag=denoised_mag, debug_level=debug_level
     )
     variance_traj_raw, threshold_var_raw, _, detected_raw = variance_trajectory_detector(
-        input_signal, t, processed_mag=raw_mag, is_denoised=False, debug_level=debug_level
+        input_signal, t, processed_mag=raw_mag, debug_level=debug_level
     )
     detected_mf, mf_output, threshold_mf = matched_filter_detector(input_signal, stf, fs=fs)
 
