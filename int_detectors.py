@@ -12,6 +12,7 @@ import mplcursors  # For interactive cursor
 fs = 20e6  # Sampling frequency in Hz
 add_rf_fingerprint = True
 seed = 42
+debug_level = 0  # Debug levels: 0 = no debug, 1 = basic, 2 = detailed
 
 # Generate signal
 t, input_signal = generate_80211ag_preamble(fs=fs, add_rf_fingerprint=add_rf_fingerprint, seed=seed)
@@ -38,11 +39,12 @@ plt.ylabel("Amplitude")
 plt.legend()
 plt.title("802.11 a/g Signal with 20 µs Noise and Full Preamble")
 plt.show()
-print("Signal length:", len(input_signal))
+if debug_level >= 0:
+    print("Signal length:", len(input_signal))
 
 # Apply detectors
 variance_traj_denoised, threshold_var, denoised_mag = variance_trajectory_detector(
-    input_signal, t, threshold_multiplier=1.5
+    input_signal, t, threshold_multiplier=1.5, debug_level=debug_level
 )
 detected_mf, mf_output, threshold_mf = matched_filter_detector(input_signal, stf, fs=fs)
 
@@ -68,13 +70,19 @@ variance_traj_raw = variance_traj_raw / max_variance if max_variance > 0 else va
 # Debug: Print VT values and ensure correct noise region
 noise_mask = (t_var * 1e6 >= 16.05) & (t_var * 1e6 < 19.95)  # Use t_var for accurate window end times
 noise_var_raw = variance_traj_raw[noise_mask]
-print(f"Raw VT Values in Noise Region (16.05-19.95 µs): {noise_var_raw}")
-print(f"Number of Noise Region Samples: {len(noise_var_raw)}")
+if debug_level >= 1:
+    print(f"Raw VT Values in Noise Region (16.05-19.95 µs): {noise_var_raw}")
+    print(f"Number of Noise Region Samples: {len(noise_var_raw)}")
+if debug_level >= 2:
+    for i, val in enumerate(noise_var_raw):
+        print(f"Raw VT[{i}] at {t_var[noise_mask][i] * 1e6:.2f} µs: {val:.6f}")
 noise_median_raw = np.median(noise_var_raw) if noise_var_raw.size > 0 else 0.0
-print(f"Raw Noise Region Median VT (16.05-19.95 µs): {noise_median_raw}")
+if debug_level >= 1:
+    print(f"Raw Noise Region Median VT (16.05-19.95 µs): {noise_median_raw}")
 # Use max VT in noise region for threshold to avoid early triggering
 threshold_var_raw = 1.2 * np.max(noise_var_raw) if noise_var_raw.size > 0 else 0.005
-print(f"Threshold (raw) based on 1.2 * max: {threshold_var_raw}")
+if debug_level >= 1:
+    print(f"Threshold (raw) based on 1.2 * max: {threshold_var_raw}")
 
 # Find threshold trigger point for raw
 start_idx_raw = 0
@@ -93,13 +101,19 @@ variance_traj_denoised = variance_traj_denoised / max_variance_denoised if max_v
 
 # Debug: Print VT values and ensure correct noise region
 noise_var_denoised = variance_traj_denoised[noise_mask]
-print(f"Denoised VT Values in Noise Region (16.05-19.95 µs): {noise_var_denoised}")
-print(f"Number of Noise Region Samples: {len(noise_var_denoised)}")
+if debug_level >= 1:
+    print(f"Denoised VT Values in Noise Region (16.05-19.95 µs): {noise_var_denoised}")
+    print(f"Number of Noise Region Samples: {len(noise_var_denoised)}")
+if debug_level >= 2:
+    for i, val in enumerate(noise_var_denoised):
+        print(f"Denoised VT[{i}] at {t_var[noise_mask][i] * 1e6:.2f} µs: {val:.6f}")
 noise_median_denoised = np.median(noise_var_denoised) if noise_var_denoised.size > 0 else 0.0
-print(f"Denoised Noise Region Median VT (16.05-19.95 µs): {noise_median_denoised}")
+if debug_level >= 1:
+    print(f"Denoised Noise Region Median VT (16.05-19.95 µs): {noise_median_denoised}")
 # Use max VT in noise region for threshold to avoid early triggering
 threshold_var = 1.2 * np.max(noise_var_denoised) if noise_var_denoised.size > 0 else 0.005
-print(f"Threshold (denoised) based on 1.2 * max: {threshold_var}")
+if debug_level >= 1:
+    print(f"Threshold (denoised) based on 1.2 * max: {threshold_var}")
 
 # Find threshold trigger point for denoised
 start_idx_denoised = 0

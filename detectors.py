@@ -3,7 +3,7 @@ from scipy import signal as sig
 import dtcwt  # Full dtcwt module import
 
 def variance_trajectory_detector(
-    signal, t, window_size=320, threshold_multiplier=0.5, nlevels=4
+    signal, t, window_size=320, threshold_multiplier=0.5, nlevels=4, debug_level=0
 ):
     """
     Detect bursts using a variance trajectory with DTCWT enhancement and denoising.
@@ -14,6 +14,7 @@ def variance_trajectory_detector(
     - window_size: Size of the sliding window (default 320 ~ 16 µs at 20 MHz)
     - threshold_multiplier: Multiplier for variance threshold (default 0.5)
     - nlevels: Number of DTCWT decomposition levels (default 4)
+    - debug_level: Debugging level (0 = no debug, 1 = basic, 2 = detailed)
 
     Returns:
     - variance_traj: Variance trajectory over time
@@ -56,7 +57,8 @@ def variance_trajectory_detector(
     noise_mean_denoised = np.mean(noise_denoised)
     denoised_mag = np.abs(denoised_signal) - noise_mean_denoised
     denoised_mag = np.maximum(denoised_mag, 0)  # Ensure non-negative
-    print(f"Denoised signal max magnitude: {np.max(denoised_mag)}")
+    if debug_level >= 1:
+        print(f"Denoised signal max magnitude: {np.max(denoised_mag)}")
 
     # Step 4: Compute variance trajectory on denoised signal
     variance_traj = np.zeros(len(signal) - window_size + 1)
@@ -68,13 +70,20 @@ def variance_trajectory_detector(
     t_var = t[window_size - 1: len(variance_traj) + window_size - 1]  # Time at end of windows
     noise_mask = (t_var * 1e6 >= 16.05) & (t_var * 1e6 < 19.95)  # Exclude 20 µs
     noise_var = variance_traj[noise_mask] if np.any(noise_mask) else variance_traj[1:-1]  # Exclude first and last (20 µs)
-    print(f"Denoised VT Values in Noise Region (16.05-19.95 µs): {noise_var}")
-    print(f"Number of Noise Region Samples: {len(noise_var)}")
+    if debug_level >= 1:
+        print(f"Denoised VT Values in Noise Region (16.05-19.95 µs): {noise_var}")
+        print(f"Number of Noise Region Samples: {len(noise_var)}")
+    if debug_level >= 2:
+        for i, val in enumerate(noise_var):
+            print(f"Denoised VT[{i}] at {t_var[noise_mask][i] * 1e6:.2f} µs: {val:.6f}")
     noise_median = np.median(noise_var) if noise_var.size > 0 else 0.0
-    print(f"Noise Region Median VT (16.05-19.95 µs): {noise_median}")
+    if debug_level >= 1:
+        print(f"Noise Region Median VT (16.05-19.95 µs): {noise_median}")
     threshold_var = 1.2 * np.max(noise_var) if noise_var.size > 0 else 0.005  # 1.2 * max of noise VT values
-    print(f"Threshold: {threshold_var}")
-    print(f"Variance trajectory max: {np.max(variance_traj)}")
+    if debug_level >= 1:
+        print(f"Threshold: {threshold_var}")
+    if debug_level >= 1:
+        print(f"Variance trajectory max: {np.max(variance_traj)}")
 
     return variance_traj, threshold_var, denoised_mag  # Return only needed values
 
