@@ -1,4 +1,3 @@
-# feature_extractor.py
 import numpy as np
 from scipy import stats
 from dtcwt import Transform1d
@@ -40,7 +39,7 @@ def compute_characteristics(coeffs, fs, nlevels=5, debug_level=0):
                 print(f"Level {j} - Phase unwrapped (after polynomial detrending): min={np.min(phase_detrended):.4f}, max={np.max(phase_detrended):.4f}")
             # Compute instantaneous frequency using diff to match length
             freq_deriv = np.diff(phase_detrended) / delta_t
-            frequency = np.concatenate([freq_deriv, [freq_deriv[-1]]]) / (2 * np.pi)
+            frequency = np.concatenate([freq_deriv, [freq_deriv[-1]]]) / (2 * np.pi)  # Match length to phase
             if debug_level >= 2:
                 print(f"Level {j} - Frequency (after gradient): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
             # Center frequency
@@ -50,7 +49,6 @@ def compute_characteristics(coeffs, fs, nlevels=5, debug_level=0):
                 print(f"Level {j} - Frequency (after centering): min={np.min(frequency):.4f}, max={np.max(frequency):.4f}")
             # Light smoothing to reduce spikiness, with adaptive kernel size
             if len(frequency) > 3:
-                # Adjust kernel size based on level to avoid over-smoothing at higher levels
                 base_kernel = max(3 - j, 1)
                 kernel_size = base_kernel if base_kernel % 2 == 1 else base_kernel + 1  # Ensure odd
                 frequency = medfilt(frequency, kernel_size=kernel_size)

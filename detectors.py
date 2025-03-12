@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple
 from scipy import signal as sig
 
 def variance_trajectory_detector(
@@ -9,9 +9,9 @@ def variance_trajectory_detector(
     window_size: int = 320,
     threshold_multiplier: float = 1.5,
     debug_level: int = 0
-) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, float, np.ndarray, int]:
     """
-    Detect bursts using a variance trajectory on a pre-processed signal magnitude.
+    Detect the first point where variance exceeds a threshold using a sliding window.
 
     Args:
         signal (np.ndarray): Input signal array (complex-valued, unused for computation but kept for context).
@@ -22,11 +22,11 @@ def variance_trajectory_detector(
         debug_level (int): Debugging level (0 = no debug, 1 = basic, 2 = detailed).
 
     Returns:
-        Tuple[np.ndarray, float, np.ndarray, np.ndarray]: 
+        Tuple[np.ndarray, float, np.ndarray, int]: 
             - variance_traj: Variance trajectory over time.
             - threshold: Variance threshold used for detection.
             - processed_mag: Input processed magnitude (passed through).
-            - detected: Boolean array indicating detected bursts.
+            - trigger_idx: Index where variance first exceeds threshold, or -1 if no detection.
     """
     if len(signal) == 0 or len(t) == 0 or len(processed_mag) == 0:
         raise ValueError("Signal, time array, and processed magnitude must be non-empty")
@@ -39,9 +39,9 @@ def variance_trajectory_detector(
         window = processed_mag[i : i + window_size]
         variance_traj[i] = np.var(window)
 
-    # Step 2: Threshold and detect bursts
+    # Step 2: Calculate threshold from noise region (excluding edges)
     t_var = t[window_size - 1: len(variance_traj) + window_size - 1]  # Time at end of windows
-    noise_mask = (t_var * 1e6 >= 16.05) & (t_var * 1e6 < 19.95)  # Exclude 20 µs
+    noise_mask = (t_var * 1e6 >= 16.05) & (t_var * 1e6 < 19.95)  # Noise region 16.05-19.95 µs
     noise_var = variance_traj[noise_mask] if np.any(noise_mask) else variance_traj[1:-1]
     if debug_level >= 1:
         print(f"VT Values in Noise Region (16.05-19.95 µs): {noise_var}")
@@ -52,24 +52,19 @@ def variance_trajectory_detector(
     noise_median = np.median(noise_var) if noise_var.size > 0 else 0.0
     if debug_level >= 1:
         print(f"Noise Region Median VT (16.05-19.95 µs): {noise_median}")
-    threshold = 1.2 * np.max(noise_var) if noise_var.size > 0 else 0.005  # 1.2 * max of noise VT values
+    threshold = 1.2 * np.max(noise_var) * threshold_multiplier if noise_var.size > 0 else 0.005 * threshold_multiplier
     if debug_level >= 1:
         print(f"Threshold: {threshold}")
-    if debug_level >= 1:
         print(f"Variance trajectory max: {np.max(variance_traj)}")
 
-    # Step 3: Detect bursts
-    detected = np.zeros(len(signal), dtype=bool)
+    # Step 3: Find first threshold crossing
+    trigger_idx = -1
     for i in range(len(variance_traj)):
-        if variance_traj[i] > threshold and t[i + window_size - 1] * 1e6 >= 20.0:
-            start_idx = i
-            end_time = t[i + window_size - 1] + 16e-6  # 16 µs after the window end
-            end_idx = np.searchsorted(t, end_time, side='right')
-            end_idx = min(len(signal), end_idx)
-            detected[start_idx:end_idx] = True  # Use signal indices directly
+        if variance_traj[i] > threshold:
+            trigger_idx = i  # Return index relative to variance_traj (shifted by window_size - 1 in signal)
             break
 
-    return variance_traj, threshold, processed_mag, detected
+    return variance_traj, threshold, processed_mag, trigger_idx
 
 def matched_filter_detector(signal, template, threshold_fraction=0.5, fs=20e6):
     """

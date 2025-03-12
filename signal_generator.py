@@ -1,8 +1,7 @@
 # signal_generator.py
 import numpy as np
 
-
-def generate_80211ag_preamble(fs=20e6, add_rf_fingerprint=False, seed=None):
+def generate_80211ag_preamble(fs=20e6, add_rf_fingerprint=False, seed=None, debug_level=0):
     """
     Generate an 802.11a/g preamble with short and long training sequences, optionally with RF fingerprint simulation.
 
@@ -10,6 +9,7 @@ def generate_80211ag_preamble(fs=20e6, add_rf_fingerprint=False, seed=None):
         fs (float): Sampling frequency in Hz (default: 20e6).
         add_rf_fingerprint (bool): Whether to apply RF fingerprint simulation (default: False).
         seed (int or None): Random seed for reproducibility of RF fingerprint (default: None).
+        debug_level (int): Debugging level (0 = no debug, 1 = basic, 2 = detailed).
 
     Returns:
         tuple: (t, preamble) where t is the time array and preamble is the signal.
@@ -137,7 +137,8 @@ def generate_80211ag_preamble(fs=20e6, add_rf_fingerprint=False, seed=None):
             np.random.seed(seed)  # Set seed for reproducibility
         # Phase noise: random phase variation, scaled to ±25 degrees
         phase_noise = np.random.randn(len(preamble)) * np.deg2rad(25)
-        print(f"Phase noise std (degrees): {np.std(phase_noise) * 180/np.pi:.2f}")
+        if debug_level >= 1:
+            print(f"Phase noise std (degrees): {np.std(phase_noise) * 180/np.pi:.2f}")
         preamble = preamble * np.exp(1j * phase_noise)
         # Frequency offset: small random offset, ±50 Hz
         freq_offset = (
@@ -145,7 +146,8 @@ def generate_80211ag_preamble(fs=20e6, add_rf_fingerprint=False, seed=None):
             if seed is None
             else np.random.uniform(-50, 50, size=1)[0]
         )
-        print(f"Applied frequency offset: {freq_offset:.2f} Hz")
+        if debug_level >= 1:
+            print(f"Applied frequency offset: {freq_offset:.2f} Hz")
         t = np.arange(len(preamble)) / fs
         freq_shift = np.exp(1j * 2 * np.pi * freq_offset * t)
         preamble = preamble * freq_shift
